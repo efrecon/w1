@@ -5,6 +5,7 @@ namespace eval ::w1 {
         variable -root  "/sys/bus/w1/devices"
         variable -slave "w1_slave"
         variable -poll  10
+        variable -debug off
 
         variable addrPattern {[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]}
         variable 0K -273.15
@@ -181,7 +182,10 @@ proc ::w1::temperature { dev {cmd {}} } {
 #       Change value of (external) variable.
 proc ::w1::SetVar { var errval val } {
     if { $val != $errval } {
+        Debug "Setting variable $var to $val"
         set $var $val
+    } else {
+        Debug "Error when setting variable $var"
     }
 }
 
@@ -292,8 +296,20 @@ proc ::w1::HexClean { line } {
 }
 
 
+proc ::w1::Debug { txt } {
+    if { ${vars::-debug} } {
+        puts stderr "[clock format [clock seconds] -format %Y%m%d-%H%M%S] $txt"
+    }
+}
+
 # If we are not being included in another script, run a quick test
 if {[file normalize $::argv0] eq [file normalize [info script]]} {
+    foreach {opt val} $::argv {
+        if { [string index $opt 0] eq "-" && [info exists ::w1::vars::$opt] } {
+            set ::w1::vars::$opt $val
+        }
+    }
+    
     # Enumerate all devices
     puts "Known devices: [onewire devices]"
     # Enumerate all devices for a given family, e.g DS18B20
@@ -309,9 +325,9 @@ if {[file normalize $::argv0] eq [file normalize [info script]]} {
     # variable, but it can also be passed as the third argument to the procedure
     # instead. Reading occurs in the backgound
     set pool [lindex [onewire devices 28] 0]
-    onewire bind $pool ::temp
+    onewire bind $pool ::temp 60.3
 
     # Wait for the variable to be set and output what was read.
-    vwait forever
+    vwait ::temp
     puts "Temperature at $dev was set once to $::temp"
 }
