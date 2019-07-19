@@ -9,6 +9,7 @@ namespace eval ::w1 {
 
         variable addrPattern {[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]}
         variable 0K -273.15
+        variable generator 0
     }
 
     namespace export {[a-z]*}
@@ -84,13 +85,43 @@ proc ::w1::bind { dev var {period -1} {type ""} } {
 
     switch -nocase -glob -- $type {
         "TEMP*" {
+            set bound [namespace current]::bound[incr vars::generator]
+            upvar \#0 $bound B
+            dict set B -variable $var
+            dict set B -device $dev
+            dict set B latest 0
             set $var $vars::0K
-            every $period [list [namespace current]::temperature $dev [list [namespace current]::SetVar $var $vars::0K]]
+            every $period [list [namespace current]::temperature \
+                                    $dev \
+                                    [list [namespace current]::SetVar \
+                                                $bound \
+                                                $vars::0K]]
+            return $bound
         }
         default {
             return -code error "Unknown type: $type"
         }
     }
+    return ""; # Never reached
+}
+
+proc ::w1::when { id } {
+    if { ! [string match [namespace current]::bound* $id] } {
+        foreach b [info vars [namespace current]::bound*] {
+            upvar \#0 $b B
+            if { [dict get $B -variable] eq $id } {
+                return [when $b]
+            }
+        }
+        return -code error "$id is neither a bound identifier, neither a bound variable!"
+    }
+
+    if { [info exists $id] } {
+        upvar \#0 $id B
+
+        return [dict get $B latest]
+    }
+    return -code error "$id is not a bound identifier!"
 }
 
 
@@ -171,7 +202,7 @@ proc ::w1::temperature { dev {cmd {}} } {
 #       variable to the value of a sensor.
 #
 # Arguments:
-#       var     Fully-qualified name of variable.
+#       bound   Identifier of the bound.
 #       errval  Error value, skip when the value is equal to this.
 #       val     Value reported by sensor.
 #
@@ -180,10 +211,12 @@ proc ::w1::temperature { dev {cmd {}} } {
 #
 # Side Effects:
 #       Change value of (external) variable.
-proc ::w1::SetVar { var errval val } {
+proc ::w1::SetVar { bound errval val } {
+    upvar \#0 $bound B
     if { $val != $errval } {
-        Debug "Setting variable $var to $val"
-        set $var $val
+        Debug "Setting variable [dict get $B -variable] to $val"
+        set [dict get $B -variable] $val
+        dict set B latest [clock seconds]
     } else {
         Debug "Error when setting variable $var"
     }
